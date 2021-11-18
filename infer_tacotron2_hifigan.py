@@ -13,6 +13,8 @@ import json
 import torch
 from env import AttrDict
 from models import Generator
+import imageio
+
 
 MAX_WAV_VALUE = 32768.0
 
@@ -29,13 +31,25 @@ def load_checkpoint(filepath, device):
 if __name__ == '__main__':
 # load tacotron2
     config = HParams()
-    tacotron2_path = 'tacotron2-cn.pt'
-    print('loading model: {}...'.format(tacotron2_path))
-    tacotron2_model = Tacotron2(config)
-    tacotron2_model.load_state_dict(torch.load(tacotron2_path))
-    tacotron2_model = tacotron2_model.to('cpu')
-    tacotron2_model.eval()
 
+
+    checkpoint_path = 'checkpoint.tar'
+    ckp_mode = 'dict'
+
+    if ckp_mode == 'dict':
+        print('loading model: {}...'.format(checkpoint_path))
+        checkpoint = torch.load(checkpoint_path)
+        tacotron2_model = checkpoint['model']
+    else:
+        print('loading model: {}...'.format(checkpoint_path))
+        tacotron2_model = Tacotron2(config)
+        tacotron2_model.load_state_dict(torch.load(checkpoint_path))
+
+
+
+    
+    tacotron2_model = tacotron2_model.to('cpu')
+    tacotron2_model.eval()    
 # load HiFi-GAN
     hifigan_path = 'LJ_FT_T2_V3/generator_v3'
     config_file = 'LJ_FT_T2_V3/config.json'
@@ -58,7 +72,7 @@ if __name__ == '__main__':
     generator.remove_weight_norm()
 
 # get input text
-    text = "忽如一夜春风来 千树万树梨花开"
+    text = "相对论直接和间接的催生了量子力学的诞生 也为研究微观世界的高速运动确立了全新的数学模型"
     text = pinyin.get(text, format="numerical", delimiter=" ")
     print(text)
     sequence = np.array(text_to_sequence(text))[None, :]
@@ -66,6 +80,8 @@ if __name__ == '__main__':
 
 # get mel-spectrogram
     mel_outputs, mel_outputs_postnet, _, alignments = tacotron2_model.inference(sequence)
+    aligments = alignments.detach().numpy().squeeze()
+    imageio.imwrite('alignment_ref.jpg', aligments)
 
 # use HiFi-GAN get waveform
     mel_outputs_postnet = torch.FloatTensor(mel_outputs_postnet).to(device)
@@ -79,4 +95,4 @@ if __name__ == '__main__':
     audio = audio.detach().cpu().numpy().astype('float32')
     
 # write waveform file
-    sf.write('output_v3.wav',audio,sampling_rate)
+    sf.write('output.wav',audio,sampling_rate)
