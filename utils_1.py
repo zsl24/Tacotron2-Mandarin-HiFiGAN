@@ -3,11 +3,14 @@ import logging
 
 import cv2 as cv
 import librosa
+import matplotlib 
+matplotlib.use('Agg')
 import matplotlib.pylab as plt
 import numpy as np
 import pinyin
 import torch
-
+import json
+import config
 # from scipy.io.wavfile import read
 from config import sampling_rate, VOCAB, IVOCAB
 # from text.cleaners import chinese_cleaners
@@ -86,7 +89,7 @@ def parse_args():
     parser.add_argument('--epochs', default=10000, type=int)
     parser.add_argument('--max_norm', default=1, type=float, help='Gradient norm threshold to clip')
     # minibatch
-    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--batch_size', default=config.batch_size, type=int)
     parser.add_argument('--num-workers', default=4, type=int, help='Number of workers to generate minibatch')
     # logging
     parser.add_argument('--print_freq', default=10, type=int, help='Frequency of printing training information')
@@ -130,11 +133,29 @@ def get_mask_from_lengths(lengths):
     mask = (ids < lengths.unsqueeze(1)).bool()
     return mask
 
+def load_audiopaths_and_text_json(filename):
+    '''
+    read json file containing audio path, text content, duration of audio
+    parse audio file paths and text content, store the results in list, such as:
+    [[audiopath0,text0],
+     [audiopath1,text1],
+     ...,
+     [audiopathn,textn]]
+    '''
+    jsonfile = open(filename,'r',encoding='utf-8')
+    filepaths_and_text = []
+    for line in jsonfile.readlines():
+        dic = json.loads(line)
+        filepaths_and_text.append([dic['audio_filepath'],dic['text']])
+    return filepaths_and_text
+
 
 def load_wav_to_torch(full_path):
     # sampling_rate, data = read(full_path)
     y, sr = librosa.core.load(full_path, sampling_rate)
     yt, _ = librosa.effects.trim(y)
+    if config.dataset == 'viya':
+        yt = librosa.util.normalize(yt)
     return torch.FloatTensor(yt.astype(np.float32)), sr
 
 
@@ -172,19 +193,20 @@ def plot_data(data, figsize=(16, 4)):
 
 def test(model, step_num, loss):
     model.eval()
-
     text = "相对论直接和间接的催生了量子力学的诞生 也为研究微观世界的高速运动确立了全新的数学模型"
     text = pinyin.get(text, format="numerical", delimiter=" ")
     sequence = np.array(text_to_sequence(text))[None, :]
     sequence = torch.autograd.Variable(torch.from_numpy(sequence)).cuda().long()
     with torch.no_grad():
         mel_outputs, mel_outputs_postnet, _, alignments = model.inference(sequence)
+    '''
     plot_data((mel_outputs.float().data.cpu().numpy()[0],
                mel_outputs_postnet.float().data.cpu().numpy()[0],
                alignments.float().data.cpu().numpy()[0].T))
     title = 'step={0}, loss={1:.5f}'.format(step_num, loss)
     plt.title(title)
-    filename = 'images/temp.jpg'
+    '''
+    filename = 'images/step{0}_loss{1:.5f}_temp.jpg'.format(step_num,loss)
     plt.savefig(filename)
     img = cv.imread(filename)
     img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
