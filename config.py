@@ -1,7 +1,6 @@
 import json
-
 import torch
-
+import os
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  # sets device for model and PyTorch tensors
 
 meta_file = 'data/BZNSYP/ProsodyLabeling/000001-010000.txt'
@@ -14,8 +13,9 @@ with open(vacab_file, 'r', encoding='utf-8') as file:
 VOCAB = data['VOCAB']
 IVOCAB = data['IVOCAB']
 
-num_train = 9900
+num_train = 9800
 num_valid = 100
+num_test = 100
 
 ################################
 # Experiment Parameters        #
@@ -31,8 +31,14 @@ distributed_run = False
 # Data Parameters             #
 ################################
 load_mel_from_disk = False
-training_files = 'filelists/bznsyp_audio_text_train_filelist.txt'
-validation_files = 'filelists/bznsyp_audio_text_valid_filelist.txt'
+dataset = 'viya'
+if dataset == 'viya':
+    training_files = dataset + '_filelist/' + dataset + '_audio_text_train_filelist.json'
+    validation_files = dataset + '_filelist/' + dataset + '_audio_text_valid_filelist.json'
+if dataset == 'biaobei':
+    training_files = dataset + '_filelist/' + dataset + '_audio_text_train_filelist.txt'
+    validation_files = dataset + '_filelist/' + dataset + '_audio_text_valid_filelist.txt'    
+
 
 ################################
 # Audio Parameters             #
@@ -84,5 +90,5 @@ postnet_n_convolutions = 5
 ################################
 learning_rate = 1e-3
 weight_decay = 1e-6
-batch_size = 64
+batch_size = 32
 mask_padding = True  # set model's padded outputs to padded values
