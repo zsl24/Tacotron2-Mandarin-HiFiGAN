@@ -28,9 +28,10 @@ def clip_gradient(optimizer, grad_clip):
                 param.grad.data.clamp_(-grad_clip, grad_clip)
 
 
-def save_checkpoint(epoch, epochs_since_improvement, model, optimizer, loss, is_best):
+def save_checkpoint(epoch, step, steps_since_improvement, model, optimizer, loss, is_best):
     state = {'epoch': epoch,
-             'epochs_since_improvement': epochs_since_improvement,
+             'step': step,
+             'steps_since_improvement': steps_since_improvement,
              'loss': loss,
              'model': model,
              'optimizer': optimizer}
@@ -192,8 +193,9 @@ def plot_data(data, figsize=(16, 4)):
 
 
 def test(model, step_num, loss):
+    model.to('cuda')
     model.eval()
-    text = "相对论直接和间接的催生了量子力学的诞生 也为研究微观世界的高速运动确立了全新的数学模型"
+    text = "相对论直接和间接的催生了量子力学的诞生"
     text = pinyin.get(text, format="numerical", delimiter=" ")
     sequence = np.array(text_to_sequence(text))[None, :]
     sequence = torch.autograd.Variable(torch.from_numpy(sequence)).cuda().long()
@@ -206,13 +208,22 @@ def test(model, step_num, loss):
     title = 'step={0}, loss={1:.5f}'.format(step_num, loss)
     plt.title(title)
     '''
-    filename = 'images/step{0}_loss{1:.5f}_temp.jpg'.format(step_num,loss)
-    plt.savefig(filename)
-    img = cv.imread(filename)
+    
+    img = alignments.float().data.cpu().numpy()[0].T
+    filename = 'images/wwstep{0}_loss{1:.5f}_temp.jpg'.format(step_num,loss)
     img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-    img = img / 255.
+    img = img * 255.
+    cv.imwrite(filename,img)
+    
     return img
 
+if __name__ == '__main__':
+    from taco2models.models import Tacotron2
+    checkpoint = 'ckp/tacotron2-cn.pt'
+    checkpoint = torch.load(checkpoint)
+    model = Tacotron2(config)
+    model.load_state_dict(checkpoint)
+    test(model,0,0.23)
 
 class HParams:
     def __init__(self):
