@@ -1,4 +1,4 @@
-# Tacotron2-HiFiGAN-TTS
+# Tacotron2(Mandarin)-HiFiGAN-TTS
 Implementation of TTS with combination of Tacotron2 and HiFi-GAN for Mandarin TTS.  
 
 ## Inference
