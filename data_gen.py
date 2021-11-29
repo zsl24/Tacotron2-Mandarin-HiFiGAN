@@ -17,7 +17,7 @@ class TextMelLoader(torch.utils.data.Dataset):
     def __init__(self, audiopaths_and_text, hparams):
         if hparams.dataset == 'biaobei':
             self.audiopaths_and_text = load_filepaths_and_text(audiopaths_and_text,split='|')
-        if hparams.dataset == 'viya':
+        if hparams.dataset == 'viya' or hparams.dataset == 'xiaoxian':
             self.audiopaths_and_text = load_audiopaths_and_text_json(audiopaths_and_text)
         self.sampling_rate = hparams.sampling_rate
         # self.max_wav_value = hparams.max_wav_value
