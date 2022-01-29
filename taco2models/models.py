@@ -7,7 +7,7 @@ from torch.nn import functional as F
 
 from utils_1 import get_mask_from_lengths, to_gpu
 from .layers import ConvNorm, LinearNorm
-
+device = torch.device('cuda')
 
 class LocationLayer(nn.Module):
     def __init__(self, attention_n_filters, attention_kernel_size,
@@ -179,6 +179,7 @@ class Encoder(nn.Module):
         x = x.transpose(1, 2)
 
         # pytorch tensor are not reversible, hence the conversion
+        
         input_lengths = input_lengths.cpu().numpy()
         x = nn.utils.rnn.pack_padded_sequence(
             x, input_lengths, batch_first=True)
@@ -403,7 +404,7 @@ class Decoder(nn.Module):
             mel_output, gate_output, attention_weights = self.decode(
                 decoder_input)
             mel_outputs += [mel_output.squeeze(1)]
-            gate_outputs += [gate_output.squeeze()]
+            gate_outputs += [gate_output.squeeze(1)]
             alignments += [attention_weights]
 
         mel_outputs, gate_outputs, alignments = self.parse_decoder_outputs(
@@ -413,6 +414,43 @@ class Decoder(nn.Module):
 
     def inference(self, memory):
         """ Decoder inference
+        PARAMS
+        ------
+        memory: Encoder outputs
+        RETURNS
+        -------
+        mel_outputs: mel outputs from the decoder
+        gate_outputs: gate outputs from the decoder
+        alignments: sequence of attention weights from the decoder
+        """
+        decoder_input = self.get_go_frame(memory)
+
+        self.initialize_decoder_states(memory, mask=None)
+
+        mel_outputs, gate_outputs, alignments = [], [], []
+        while True:
+            decoder_input = self.prenet(decoder_input)
+            mel_output, gate_output, alignment = self.decode(decoder_input)
+
+            mel_outputs += [mel_output.squeeze(1)]
+            gate_outputs += [gate_output]
+            alignments += [alignment]
+
+            if torch.sigmoid(gate_output.data) > self.gate_threshold:
+                break
+            elif len(mel_outputs) == self.max_decoder_steps:
+                print("Warning! Reached max decoder steps")
+                break
+
+            decoder_input = mel_output
+
+        mel_outputs, gate_outputs, alignments = self.parse_decoder_outputs(
+            mel_outputs, gate_outputs, alignments)
+
+        return mel_outputs, gate_outputs, alignments
+
+    def inference_tf(self, memory):
+        """ Decoder inference with teacher forcing
         PARAMS
         ------
         memory: Encoder outputs
@@ -496,7 +534,6 @@ class Tacotron2(nn.Module):
         text_lengths, output_lengths = text_lengths.data, output_lengths.data
 
         embedded_inputs = self.embedding(text_inputs).transpose(1, 2)
-
         encoder_outputs = self.encoder(embedded_inputs, text_lengths)
 
         mel_outputs, gate_outputs, alignments = self.decoder(
@@ -522,3 +559,37 @@ class Tacotron2(nn.Module):
             [mel_outputs, mel_outputs_postnet, gate_outputs, alignments])
 
         return outputs
+    
+    def inference_tf(self,inputs):
+        # inputs = (text_inputs,mels)
+
+        text_inputs,mels = inputs
+        text_lengths, output_lengths = torch.tensor([len(text_inputs[0])]).to(device), torch.tensor([mels[0].size(1)]).to(device)
+
+        embedded_inputs = self.embedding(text_inputs).transpose(1, 2)
+
+        encoder_outputs = self.encoder(embedded_inputs, text_lengths)
+
+        mel_outputs, gate_outputs, alignments = self.decoder(
+            encoder_outputs, mels, memory_lengths=text_lengths)
+
+        mel_outputs_postnet = self.postnet(mel_outputs)
+        mel_outputs_postnet = mel_outputs + mel_outputs_postnet
+
+        return self.parse_output(
+            [mel_outputs, mel_outputs_postnet, gate_outputs, alignments],
+            output_lengths)
+
+
+from librosa.display import specshow,waveplot
+import soundfile as sf
+import matplotlib.pyplot as plt
+def plot_mels(spec,spec_est):
+    fig, ax = plt.subplots(2,1, figsize=(10,8), sharey=True)
+    img0 = specshow(spec_est,y_axis='mel',x_axis='time',ax=ax[0])
+    img1 = specshow(spec,y_axis='mel',x_axis='time',ax=ax[1])
+    ax[0].set(title='estimated mel-spectrogram')
+    ax[1].set(title='gt mel-spectrogram')
+    fig.colorbar(img1, ax=ax[1], format="%+2.2f dB")
+    fig.colorbar(img0, ax=ax[0], format="%+2.2f dB")
+    plt.savefig('mels.jpg')
