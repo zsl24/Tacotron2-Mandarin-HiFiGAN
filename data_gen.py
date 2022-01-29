@@ -14,10 +14,11 @@ class TextMelLoader(torch.utils.data.Dataset):
         3) computes mel-spectrograms from audio files.
     """
 
-    def __init__(self, audiopaths_and_text, hparams):
-        if hparams.dataset == 'biaobei':
+    def __init__(self, audiopaths_and_text, hparams, dataset='biaobei'):
+        self.dataset = dataset
+        if dataset == 'biaobei':
             self.audiopaths_and_text = load_filepaths_and_text(audiopaths_and_text,split='|')
-        if hparams.dataset == 'viya' or hparams.dataset == 'xiaoxian':
+        else:
             self.audiopaths_and_text = load_audiopaths_and_text_json(audiopaths_and_text)
         self.sampling_rate = hparams.sampling_rate
         # self.max_wav_value = hparams.max_wav_value
@@ -37,7 +38,7 @@ class TextMelLoader(torch.utils.data.Dataset):
         return (text, mel)
 
     def get_mel(self, filename):
-        audio, sampling_rate = load_wav_to_torch(filename)
+        audio, sampling_rate = load_wav_to_torch(filename,self.dataset)
         if sampling_rate != self.stft.sampling_rate:
             raise ValueError("{} SR doesn't match target {} SR".format(
                 sampling_rate, self.stft.sampling_rate))
