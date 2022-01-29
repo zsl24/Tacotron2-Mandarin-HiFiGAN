@@ -11,9 +11,9 @@ import pinyin
 import torch
 import json
 import config
-# from scipy.io.wavfile import read
+import os
+import time
 from config import sampling_rate, VOCAB, IVOCAB
-# from text.cleaners import chinese_cleaners
 
 
 def clip_gradient(optimizer, grad_clip):
@@ -35,12 +35,17 @@ def save_checkpoint(epoch, step, steps_since_improvement, model, optimizer, loss
              'loss': loss,
              'model': model,
              'optimizer': optimizer}
+    date = str(time.localtime(time.time()).tm_mon) + '_' + str(time.localtime(time.time()).tm_mday)
+    dir = config.dataset+'_checkpoints'
+    if not os.path.exists(dir):
+        os.mkdir(dir)
 
-    filename = 'checkpoint.tar'
+    filename = os.path.join(dir, date + 'checkpoint.tar')
     torch.save(state, filename)
     # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
     if is_best:
-        torch.save(state, 'BEST_checkpoint.tar')
+        print(f'saving best checkpoint with loss {loss}')
+        torch.save(state, os.path.join(dir,date + 'BEST_checkpoint.tar'))
 
 
 class AverageMeter(object):
@@ -83,24 +88,7 @@ def accuracy(scores, targets, k=1):
     correct = ind.eq(targets.view(-1, 1).expand_as(ind))
     correct_total = correct.view(-1).float().sum()  # 0D tensor
     return correct_total.item() * (100.0 / batch_size)
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Tacotron2')
-    parser.add_argument('--epochs', default=10000, type=int)
-    parser.add_argument('--max_norm', default=1, type=float, help='Gradient norm threshold to clip')
-    # minibatch
-    parser.add_argument('--batch_size', default=config.batch_size, type=int)
-    parser.add_argument('--num-workers', default=4, type=int, help='Number of workers to generate minibatch')
-    # logging
-    parser.add_argument('--print_freq', default=10, type=int, help='Frequency of printing training information')
-    # optimizer
-    parser.add_argument('--lr', default=1e-3, type=float, help='Init learning rate')
-    parser.add_argument('--l2', default=1e-6, type=float, help='weight decay (L2)')
-    parser.add_argument('--checkpoint', type=str, default=None, help='checkpoint')
-    args = parser.parse_args()
-    return args
-
+    
 
 def get_logger():
     logger = logging.getLogger()
@@ -155,7 +143,7 @@ def load_wav_to_torch(full_path):
     # sampling_rate, data = read(full_path)
     y, sr = librosa.core.load(full_path, sampling_rate)
     yt, _ = librosa.effects.trim(y)
-    if config.dataset == 'viya':
+    if config.dataset == 'viya' or config.dataset == 'xiaoxian':
         yt = librosa.util.normalize(yt)
     return torch.FloatTensor(yt.astype(np.float32)), sr
 
@@ -173,6 +161,51 @@ def to_gpu(x):
         x = x.cuda(non_blocking=True)
     return torch.autograd.Variable(x)
 
+def replace_triple_space(text):
+    res = ''
+    i = 0
+    while i < len(text):
+        j = i + 1
+        res += text[i]
+        if text[i] == ' ':
+            while j < len(text) and text[j] == ' ':
+                j += 1
+            if j - i >= 2:
+                res += ' '
+        i = j
+    return res
+            
+def process_en(s):
+    '''
+    由于拼音模块不是很完备，有一些case处理不了
+    将文字'嗯'替换成拼音'en3'
+    '''
+    res = ''
+    n = len(s)
+    for i in range(n):
+        if s[i] == '嗯':
+            res += 'en3'
+        else:
+            res += s[i]
+    return res
+
+def process_text(text):
+    '''
+    This function converts original text into pinyin sequence.
+    example:
+    text - 'www点bosc点cn 请您抄录风险揭示并签名'
+    return - 'w6  w6  w6  dian3 b6  o6  s6  c6  dian3  c6  n6  qing3 nin2 chao1 lu3 feng1 xian3 jie1 shi4 bing4 qian1 ming2'
+    '''
+    text = pinyin.get(text,format='numerical',delimiter=' ').lower()
+    text = process_en(text)
+    result = ''
+    for i,ch in enumerate(text):
+        result += ch
+        if i < len(text)-1 and ch.isalpha() and text[i+1] == ' ':
+            result += '6 '
+        elif i == len(text) - 1 and ord('a') <= ord(ch) <= ord('z'):
+            result += '6'
+    return result
 
 def text_to_sequence(text):
     # text = chinese_cleaners(text)
@@ -195,22 +228,14 @@ def plot_data(data, figsize=(16, 4)):
 def test(model, step_num, loss):
     model.to('cuda')
     model.eval()
-    text = "相对论直接和间接的催生了量子力学的诞生"
-    text = pinyin.get(text, format="numerical", delimiter=" ")
+    text = "放心吧 我们家羽绒服做的非常好 www点bosc点cn"
+    text = process_text(text)
     sequence = np.array(text_to_sequence(text))[None, :]
     sequence = torch.autograd.Variable(torch.from_numpy(sequence)).cuda().long()
     with torch.no_grad():
         mel_outputs, mel_outputs_postnet, _, alignments = model.inference(sequence)
-    '''
-    plot_data((mel_outputs.float().data.cpu().numpy()[0],
-               mel_outputs_postnet.float().data.cpu().numpy()[0],
-               alignments.float().data.cpu().numpy()[0].T))
-    title = 'step={0}, loss={1:.5f}'.format(step_num, loss)
-    plt.title(title)
-    '''
-    
     img = alignments.float().data.cpu().numpy()[0].T
-    filename = 'images/wwstep{0}_loss{1:.5f}_temp.jpg'.format(step_num,loss)
+    filename = 'images/step{0}_loss{1:.5f}_temp.jpg'.format(step_num,loss)
     img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
     img = img * 255.
     cv.imwrite(filename,img)
@@ -289,5 +314,3 @@ class HParams:
         self.weight_decay = 1e-6
         self.batch_size = 64
         self.mask_padding = True  # set model's padded outputs to padded values
-
-
